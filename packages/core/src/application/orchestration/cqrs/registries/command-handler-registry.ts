@@ -73,14 +73,14 @@ import {PatchSpfModuleCommand} from '../../../usecase-designer/spf-module/patch/
 import {PatchSpfModuleHandler} from '../../../usecase-designer/spf-module/patch/patch-spf-module.handler.js';
 import {CreateModuleCommand} from '../../../usecase-designer/spf-module/create-module/create-module.command.js';
 import {CreateModuleHandler} from '../../../usecase-designer/spf-module/create-module/create-module.handler.js';
-import {UpdateSubgraphScenarioCommand} from '../../../usecase-designer/subgraph/update-scenario/update-subgraph-scenario.command.js';
-import {UpdateSubgraphScenarioHandler} from '../../../usecase-designer/subgraph/update-scenario/update-subgraph-scenario.handler.js';
-import {UpdateSubgraphVsidCommand} from '../../../usecase-designer/subgraph/update-vsid/update-subgraph-vsid.command.js';
-import {UpdateSubgraphVsidHandler} from '../../../usecase-designer/subgraph/update-vsid/update-subgraph-vsid.handler.js';
+import {PutSubgraphScenarioCommand} from '../../../usecase-designer/subgraph/put-scenario/put-subgraph-scenario.command.js';
+import {PutSubgraphScenarioHandler} from '../../../usecase-designer/subgraph/put-scenario/put-subgraph-scenario.handler.js';
+import {PutSubgraphVsidCommand} from '../../../usecase-designer/subgraph/put-vsid/put-subgraph-vsid.command.js';
+import {PutSubgraphVsidHandler} from '../../../usecase-designer/subgraph/put-vsid/put-subgraph-vsid.handler.js';
 import {PatchSubgraphCommand} from '../../../usecase-designer/subgraph/patch/patch-subgraph.command.js';
 import {PatchSubgraphHandler} from '../../../usecase-designer/subgraph/patch/patch-subgraph.handler.js';
-import {UpdateSubgraphPropertyCommand} from '../../../usecase-designer/subgraph/update-property/update-subgraph-property.command.js';
-import {UpdateSubgraphPropertyHandler} from '../../../usecase-designer/subgraph/update-property/update-subgraph-property.handler.js';
+import {PutSubgraphPropertyCommand} from '../../../usecase-designer/subgraph/put-property/put-subgraph-property.command.js';
+import {PutSubgraphPropertyHandler} from '../../../usecase-designer/subgraph/put-property/put-subgraph-property.handler.js';
 import {UpdateSubgraphContainerIdCommand} from '../../../usecase-designer/subgraph/update-container-id/update-subgraph-container-id.command.js';
 import {UpdateSubgraphContainerIdHandler} from '../../../usecase-designer/subgraph/update-container-id/update-subgraph-container-id.handler.js';
 import {CreateVcpmCkvCommand} from '../../../usecase-designer/subgraph/create-vcpm-ckv/create-vcpm-ckv.command.js';
@@ -220,23 +220,20 @@ export class CommandHandlerRegistry {
         ),
     });
 
-    this.commandHandlerFactories.set(UpdateSubgraphScenarioCommand, {
-      create: deps =>
-        new UpdateSubgraphScenarioHandler(deps.uow, deps.queryServices),
+    this.commandHandlerFactories.set(PutSubgraphScenarioCommand, {
+      create: deps => new PutSubgraphScenarioHandler(deps.uow),
     });
 
-    this.commandHandlerFactories.set(UpdateSubgraphVsidCommand, {
-      create: deps =>
-        new UpdateSubgraphVsidHandler(deps.uow, deps.queryServices),
+    this.commandHandlerFactories.set(PutSubgraphVsidCommand, {
+      create: deps => new PutSubgraphVsidHandler(deps.uow),
     });
 
     this.commandHandlerFactories.set(PatchSubgraphCommand, {
       create: deps => new PatchSubgraphHandler(deps.uow),
     });
 
-    this.commandHandlerFactories.set(UpdateSubgraphPropertyCommand, {
-      create: deps =>
-        new UpdateSubgraphPropertyHandler(deps.uow, deps.queryServices),
+    this.commandHandlerFactories.set(PutSubgraphPropertyCommand, {
+      create: deps => new PutSubgraphPropertyHandler(deps.uow),
     });
 
     this.commandHandlerFactories.set(UpdateSubgraphContainerIdCommand, {

@@ -19,6 +19,9 @@ import type {
   ControlLinkRepository,
   SubgraphRepository,
   SubsystemRepository,
+  PropertyDefinitionsRepository,
+  SubgraphPropertyDefinitionRepository,
+  VcpmDefinitionRepository,
   UsecaseRepository,
 } from '@arc/core';
 import type {QueryRunner, EntityManager} from 'typeorm';
@@ -35,6 +38,9 @@ import {
   TypeOrmControlLinkRepository,
   TypeOrmSubgraphRepository,
   TypeOrmSubsystemRepository,
+  TypeOrmPropertyDefinitionsRepository,
+  TypeOrmSubgraphPropertyDefinitionRepository,
+  TypeOrmVcpmDefinitionRepository,
   TypeOrmUsecaseRepository,
   PendingChangeWriter,
   EditActionsQueryService,
@@ -194,6 +200,26 @@ export class TypeOrmUnitOfWork implements UnitOfWork {
 
   getUsecaseRepository(): UsecaseRepository {
     return new TypeOrmUsecaseRepository(
+      this.getPendingChangeWriter(),
+      this.queryRunner.manager,
+      this,
+      this.idGeneration,
+    );
+  }
+
+  getPropertyDefinitionsRepository(): PropertyDefinitionsRepository {
+    return new TypeOrmPropertyDefinitionsRepository();
+  }
+
+  getSubgraphPropertyDefinitionRepository(): SubgraphPropertyDefinitionRepository {
+    return new TypeOrmSubgraphPropertyDefinitionRepository(
+      this.queryRunner.manager,
+      this,
+    );
+  }
+
+  getVcpmDefinitionRepository(): VcpmDefinitionRepository {
+    return new TypeOrmVcpmDefinitionRepository(
       this.getPendingChangeWriter(),
       this.queryRunner.manager,
       this,

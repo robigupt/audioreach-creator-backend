@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 import {jest, describe, it, expect} from '@jest/globals';
-import {UpdateSubgraphVsidHandler} from '../../../../../../src/application/usecase-designer/subgraph/update-vsid/update-subgraph-vsid.handler.js';
-import {UpdateSubgraphVsidCommand} from '../../../../../../src/application/usecase-designer/subgraph/update-vsid/update-subgraph-vsid.command.js';
+import {PutSubgraphVsidHandler} from '../../../../../../src/application/usecase-designer/subgraph/put-vsid/put-subgraph-vsid.handler.js';
+import {PutSubgraphVsidCommand} from '../../../../../../src/application/usecase-designer/subgraph/put-vsid/put-subgraph-vsid.command.js';
 import {ResourceNotFoundException} from '../../../../../../src/shared/exceptions/resource-not-found.exception.js';
 import {InvalidOperationException} from '../../../../../../src/shared/exceptions/invalid-operation.exception.js';
 import {Result} from '../../../../../../src/application/shared/result/result.js';
@@ -70,25 +70,37 @@ function makeUow(opts: {subgraph?: any; linkedIds?: number[]} = {}) {
       .fn()
       .mockReturnValue({session: SESSION, groupId: GROUP_ID}),
     getSubgraphRepository: jest.fn().mockReturnValue({
-      getSubgraphWithProperties: jest
+      getAggregate: jest
         .fn()
         .mockImplementation((id: number) =>
           Promise.resolve(id === 10 ? subgraph : null),
         ),
-      getSubgraphsWithProperties: jest
-        .fn()
-        .mockImplementation((ids: number[]) => {
-          const map = new Map<number, any>();
-          for (const id of ids) {
-            if (id === 10 && subgraph) map.set(id, subgraph);
-          }
-          return Promise.resolve(map);
-        }),
+      getAggregates: jest.fn().mockImplementation((ids: number[]) => {
+        const map = new Map<number, any>();
+        for (const id of ids) {
+          if (id === 10 && subgraph) map.set(id, subgraph);
+        }
+        return Promise.resolve(map);
+      }),
       getSubgraphIdsInSameUsecases: jest.fn().mockResolvedValue(linkedIds),
       getSubgraphIdsInSameUsecasesForMany: jest
         .fn()
         .mockResolvedValue(linkedIds),
       setPropertyData,
+    }),
+    getSubgraphPropertyDefinitionRepository: jest.fn().mockReturnValue({
+      getAllSubgraphPropertyDefinitionsSummary: jest
+        .fn()
+        .mockImplementation((_fileSystemId: number, propertyId?: number) =>
+          Promise.resolve(
+            propertyId === undefined || propertyId === VSID_NATURAL_ID
+              ? Result.ok([makeVsidDef()])
+              : Result.ok([]),
+          ),
+        ),
+      getSubgraphPropertyWithElements: jest
+        .fn()
+        .mockResolvedValue(Result.ok(makeVsidDef())),
     }),
     startTransaction,
     commit,
@@ -97,22 +109,6 @@ function makeUow(opts: {subgraph?: any; linkedIds?: number[]} = {}) {
     _setPropertyData: setPropertyData,
     _commit: commit,
     _rollback: rollback,
-  };
-}
-
-function makeQueryServices(
-  vsidDef: any = Result.ok([makeVsidDef()]),
-  withElements: any = Result.ok(makeVsidDef()),
-) {
-  return {
-    subgraphPropertyDefQueryService: {
-      getAllSubgraphPropertyDefinitionsSummary: jest
-        .fn()
-        .mockResolvedValue(vsidDef),
-      getSubgraphPropertyDefinitionWithElements: jest
-        .fn()
-        .mockResolvedValue(withElements),
-    },
   };
 }
 
@@ -127,26 +123,20 @@ const ELEMENTS = [
   },
 ] as any;
 
-describe('UpdateSubgraphVsidHandler', () => {
+describe('PutSubgraphVsidHandler', () => {
   it('throws ResourceNotFoundException when subgraph not found', async () => {
     const uow = makeUow({subgraph: null}) as any;
-    const handler = new UpdateSubgraphVsidHandler(
-      uow,
-      makeQueryServices() as any,
-    );
+    const handler = new PutSubgraphVsidHandler(uow);
     await expect(
-      handler.handle(new UpdateSubgraphVsidCommand(10, ELEMENTS)),
+      handler.handle(new PutSubgraphVsidCommand(10, ELEMENTS)),
     ).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
   it('returns empty affectedSubgraphSystemIds when VSID unchanged', async () => {
     const uow = makeUow({subgraph: makeSubgraph(10, 200)}) as any;
-    const handler = new UpdateSubgraphVsidHandler(
-      uow,
-      makeQueryServices() as any,
-    );
+    const handler = new PutSubgraphVsidHandler(uow);
     const result = await handler.handle(
-      new UpdateSubgraphVsidCommand(10, ELEMENTS),
+      new PutSubgraphVsidCommand(10, ELEMENTS),
     );
     expect(result.affectedSubgraphSystemIds).toHaveLength(0);
     expect(uow._setPropertyData).not.toHaveBeenCalled();
@@ -157,12 +147,9 @@ describe('UpdateSubgraphVsidHandler', () => {
       subgraph: makeSubgraph(10, 100),
       linkedIds: [],
     }) as any;
-    const handler = new UpdateSubgraphVsidHandler(
-      uow,
-      makeQueryServices() as any,
-    );
+    const handler = new PutSubgraphVsidHandler(uow);
     const result = await handler.handle(
-      new UpdateSubgraphVsidCommand(10, ELEMENTS),
+      new PutSubgraphVsidCommand(10, ELEMENTS),
     );
     expect(uow._setPropertyData).toHaveBeenCalledTimes(1);
     expect(result.affectedSubgraphSystemIds).toContain('10');
@@ -175,12 +162,9 @@ describe('UpdateSubgraphVsidHandler', () => {
       .getSubgraphRepository()
       .setPropertyData.mockRejectedValueOnce(new Error('db error'));
     uow.isInTransaction.mockReturnValue(true);
-    const handler = new UpdateSubgraphVsidHandler(
-      uow,
-      makeQueryServices() as any,
-    );
+    const handler = new PutSubgraphVsidHandler(uow);
     await expect(
-      handler.handle(new UpdateSubgraphVsidCommand(10, ELEMENTS)),
+      handler.handle(new PutSubgraphVsidCommand(10, ELEMENTS)),
     ).rejects.toThrow('db error');
     expect(uow._rollback).toHaveBeenCalled();
   });
@@ -197,12 +181,9 @@ describe('UpdateSubgraphVsidHandler', () => {
       },
     ] as any;
     const uow = makeUow({subgraph: makeSubgraph(10, 100)}) as any;
-    const handler = new UpdateSubgraphVsidHandler(
-      uow,
-      makeQueryServices() as any,
-    );
+    const handler = new PutSubgraphVsidHandler(uow);
     await expect(
-      handler.handle(new UpdateSubgraphVsidCommand(10, badElements)),
+      handler.handle(new PutSubgraphVsidCommand(10, badElements)),
     ).rejects.toBeInstanceOf(InvalidOperationException);
   });
 });

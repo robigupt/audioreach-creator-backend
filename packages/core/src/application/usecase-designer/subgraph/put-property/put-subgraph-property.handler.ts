@@ -11,22 +11,18 @@ import type {ElementData as ElementCalData} from '../../../../domain/entities/de
 import {
   SUB_GRAPH_PROP_ID_SCENARIO_ID,
   SUB_GRAPH_PROP_ID_VSID,
-} from '../../../file-operations/shared/constants/spf-ids.js';
+} from '../../../../domain/entities/definitions/subgraph/subgraph-ids.js';
 import type {CommandHandler} from '../../../orchestration/cqrs/commands/command-handler.js';
 import type {UnitOfWork} from '../../../ports/persistence/unit-of-work.js';
-import type {QueryServices} from '../../../ports/persistence/query-services/query-services.js';
-import type {UpdateSubgraphPropertyCommand} from './update-subgraph-property.command.js';
+import type {PutSubgraphPropertyCommand} from './put-subgraph-property.command.js';
 
-export class UpdateSubgraphPropertyHandler implements CommandHandler<
-  UpdateSubgraphPropertyCommand,
+export class PutSubgraphPropertyHandler implements CommandHandler<
+  PutSubgraphPropertyCommand,
   void
 > {
-  constructor(
-    private readonly uow: UnitOfWork,
-    private readonly queryServices: QueryServices,
-  ) {}
+  constructor(private readonly uow: UnitOfWork) {}
 
-  async handle(command: UpdateSubgraphPropertyCommand): Promise<void> {
+  async handle(command: PutSubgraphPropertyCommand): Promise<void> {
     const {session} = this.uow.getWriteContext();
 
     const exists = await this.uow
@@ -38,11 +34,13 @@ export class UpdateSubgraphPropertyHandler implements CommandHandler<
       );
     }
 
-    const defResult =
-      await this.queryServices.subgraphPropertyDefQueryService.getSubgraphPropertyDefinitionWithElements(
-        command.propertySystemId,
-        session.fileSystemId,
-      );
+    const repository = this.uow.getSubgraphRepository();
+    const defResult = await this.uow
+      .getSubgraphPropertyDefinitionRepository()
+      .getSubgraphPropertyWithElements(
+      command.propertySystemId,
+      session.fileSystemId,
+    );
     if (defResult.kind === RESULT_KIND.Fail) {
       throw new ResourceNotFoundException(
         `Property definition ${command.propertySystemId} not found`,
@@ -54,12 +52,8 @@ export class UpdateSubgraphPropertyHandler implements CommandHandler<
       propDef.propertyId === SUB_GRAPH_PROP_ID_SCENARIO_ID ||
       propDef.propertyId === SUB_GRAPH_PROP_ID_VSID
     ) {
-      const endpoint =
-        propDef.propertyId === SUB_GRAPH_PROP_ID_SCENARIO_ID
-          ? 'PATCH /subgraphs/:id/scenario'
-          : 'PATCH /subgraphs/:id/vsid';
       throw new InvalidOperationException(
-        `Property ${propDef.name} is reserved. Use ${endpoint} instead.`,
+        `Property ${propDef.name} is reserved and cannot be replaced through the generic property operation.`,
       );
     }
 
@@ -75,12 +69,10 @@ export class UpdateSubgraphPropertyHandler implements CommandHandler<
       throw new InvalidOperationException(serialized.error);
     }
 
-    await this.uow
-      .getSubgraphRepository()
-      .setPropertyData(
-        command.subgraphSystemId,
-        command.propertySystemId,
-        serialized.value,
-      );
+    await repository.setPropertyData(
+      command.subgraphSystemId,
+      command.propertySystemId,
+      serialized.value,
+    );
   }
 }

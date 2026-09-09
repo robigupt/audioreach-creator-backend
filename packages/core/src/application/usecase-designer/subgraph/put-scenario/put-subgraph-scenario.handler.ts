@@ -8,25 +8,29 @@ import {ResourceNotFoundException} from '../../../../shared/exceptions/resource-
 import {InvalidOperationException} from '../../../../shared/exceptions/invalid-operation.exception.js';
 import {DomainRuleViolationException} from '../../../../shared/exceptions/domain-rule-violation.exception.js';
 import {IssueSeverity} from '../../../../shared/issues/severity.js';
-import {serializeParameterData} from '../../shared/serialize-elements.js';
+import {
+  serializeDefaultParameterData,
+  serializeParameterData,
+} from '../../shared/serialize-elements.js';
 import type {ElementData as ElementCalData} from '../../../../domain/entities/definitions/common/types/element-data.js';
 import {BinaryDataReader} from '../../shared/utils/binary-data-reader.js';
-import {BinaryDataWriter} from '../../shared/utils/binary-data-writer.js';
 import {convertParamDefinition} from '../../shared/parse-elements.js';
+import {encodeVsidPayload} from '../../../../domain/services/subgraph-property/subgraph-property-payload-codec.js';
 import {
   SUB_GRAPH_PROP_ID_SCENARIO_ID,
   SUB_GRAPH_PROP_ID_VSID,
   SUB_GRAPH_PROP_CLOCK_SCALE_FACTOR,
   SUB_GRAPH_PROP_ID_SCENARIO_VALUE_VOICE_CALL,
-} from '../../../file-operations/shared/constants/spf-ids.js';
+} from '../../../../domain/entities/definitions/subgraph/subgraph-ids.js';
 import {PARAMETER_ELEMENT_TYPE} from '../../shared/element-definition.js';
 import type {ConfigElement} from '../../shared/element-definition.js';
 import type {CommandHandler} from '../../../orchestration/cqrs/commands/command-handler.js';
 import type {UnitOfWork} from '../../../ports/persistence/unit-of-work.js';
-import type {QueryServices} from '../../../ports/persistence/query-services/query-services.js';
-import type {UpdateSubgraphScenarioCommand} from './update-subgraph-scenario.command.js';
+import type {PutSubgraphScenarioCommand} from './put-subgraph-scenario.command.js';
 import type {ScenarioChangeDto} from '../dto/subgraph-write-result-types.js';
-import type {SubgraphPropertyDefinitionWithElementsReadModel} from '../../../ports/persistence/query-services/subgraph-property-definition/subgraph-property-definition-with-elements-read-model.js';
+import type {
+  SubgraphPropertyDefinitionWithElementsReadModel,
+} from '../../../ports/persistence/query-services/subgraph-property-definition/subgraph-property-definition-with-elements-read-model.js';
 import type {SubgraphWithProperties} from '../../../ports/persistence/repositories/subgraph/subgraph.repository.js';
 import type {SpfModuleBase} from '../../../ports/persistence/repositories/module/module.repository.js';
 
@@ -38,24 +42,25 @@ type MutationLog = Pick<
   | 'moduleCkvsDeleted'
 >;
 
-export class UpdateSubgraphScenarioHandler implements CommandHandler<
-  UpdateSubgraphScenarioCommand,
+export class PutSubgraphScenarioHandler implements CommandHandler<
+  PutSubgraphScenarioCommand,
   ScenarioChangeDto
 > {
-  constructor(
-    private readonly uow: UnitOfWork,
-    private readonly queryServices: QueryServices,
-  ) {}
+  constructor(private readonly uow: UnitOfWork) {}
 
   async handle(
-    command: UpdateSubgraphScenarioCommand,
+    command: PutSubgraphScenarioCommand,
   ): Promise<ScenarioChangeDto> {
     const {session, groupId} = this.uow.getWriteContext();
     const {fileSystemId} = session;
+    const repository = this.uow.getSubgraphRepository();
+    const propertyDefinitionsRepository =
+      this.uow.getSubgraphPropertyDefinitionRepository();
 
-    const subgraph = await this.uow
-      .getSubgraphRepository()
-      .getSubgraphWithProperties(command.subgraphSystemId, fileSystemId);
+    const subgraph = await repository.getAggregate(
+      command.subgraphSystemId,
+      fileSystemId,
+    );
     if (!subgraph) {
       throw new ResourceNotFoundException(
         `Subgraph ${command.subgraphSystemId} not found`,
@@ -87,7 +92,7 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
       requestedScenario !== SUB_GRAPH_PROP_ID_SCENARIO_VALUE_VOICE_CALL;
 
     const allDefsResult =
-      await this.queryServices.subgraphPropertyDefQueryService.getAllDetailedSubgraphPropertyDefinitionsWithElements(
+      await propertyDefinitionsRepository.getSubgraphPropertiesWithElements(
         fileSystemId,
       );
     if (allDefsResult.kind === RESULT_KIND.Fail) {
@@ -142,13 +147,11 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
         );
       }
 
-      await this.uow
-        .getSubgraphRepository()
-        .setPropertyData(
-          command.subgraphSystemId,
-          scenarioDef.systemId,
-          serializedScenario,
-        );
+      await repository.setPropertyData(
+        command.subgraphSystemId,
+        scenarioDef.systemId,
+        serializedScenario,
+      );
 
       await this.uow.commit();
     } catch (error) {
@@ -160,12 +163,14 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
   }
 
   private async resolveScenarioContext(
-    command: UpdateSubgraphScenarioCommand,
+    command: PutSubgraphScenarioCommand,
     fileSystemId: number,
     subgraph: SubgraphWithProperties,
   ) {
+    const propertyDefinitionsRepository =
+      this.uow.getSubgraphPropertyDefinitionRepository();
     const scenarioDefsResult =
-      await this.queryServices.subgraphPropertyDefQueryService.getAllSubgraphPropertyDefinitionsSummary(
+      await propertyDefinitionsRepository.getAllSubgraphPropertyDefinitionsSummary(
         fileSystemId,
         SUB_GRAPH_PROP_ID_SCENARIO_ID,
       );
@@ -189,7 +194,7 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
     const requestedScenario = Number(command.elements[0]?.value);
 
     const scenarioDefWithElements =
-      await this.queryServices.subgraphPropertyDefQueryService.getSubgraphPropertyDefinitionWithElements(
+      await propertyDefinitionsRepository.getSubgraphPropertyWithElements(
         scenarioDef.systemId,
         fileSystemId,
       );
@@ -236,9 +241,10 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
 
     for (const def of voiceDefs) {
       if (existingPropIds.has(def.systemId)) continue;
+      const payload = this.serializeDefaultPropertyData(def);
       const newId = await this.uow
         .getSubgraphRepository()
-        .addProperty(subgraphSystemId, def.systemId, def);
+        .addProperty(subgraphSystemId, def.systemId, payload);
       log.propertiesAdded.push({
         systemId: String(newId),
         propertyId: def.propertyId,
@@ -263,8 +269,9 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
     }
 
     if (optimalVsid !== undefined) {
-      const vsidDefsResult =
-        await this.queryServices.subgraphPropertyDefQueryService.getAllSubgraphPropertyDefinitionsSummary(
+      const vsidDefsResult = await this.uow
+        .getSubgraphPropertyDefinitionRepository()
+        .getAllSubgraphPropertyDefinitionsSummary(
           fileSystemId,
           SUB_GRAPH_PROP_ID_VSID,
         );
@@ -273,28 +280,37 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
           ? vsidDefsResult.data[0]
           : undefined;
       if (vsidDef) {
-        const writer = new BinaryDataWriter();
-        writer.writeUInt32(optimalVsid);
-        writer.align(8);
         await this.uow
           .getSubgraphRepository()
           .setPropertyData(
             subgraphSystemId,
             vsidDef.systemId,
-            writer.toUint8Array(),
+            encodeVsidPayload(optimalVsid),
           );
       }
     }
 
     await this.wipeModuleCalData(modules, fileSystemId, log);
 
-    const vcpmDefs =
-      await this.queryServices.vcpmDefinitionQueryService.getVcpmModuleDefinitionsWithParams(
-        fileSystemId,
-      );
+    const vcpmDefs = await this.uow
+      .getVcpmDefinitionRepository()
+      .getAllVcpmModuleDefinitions(fileSystemId);
+    const defaults = vcpmDefs.map(definition => ({
+      definitionSystemId: definition.systemId,
+      parameters: definition.parameters.map(parameter => {
+        const serialized = serializeDefaultParameterData(parameter);
+        if (!serialized.ok) {
+          throw new InvalidOperationException(serialized.error);
+        }
+        return {
+          parameterSystemId: parameter.systemId,
+          payload: serialized.value,
+        };
+      }),
+    }));
     await this.uow
-      .getSubgraphRepository()
-      .addVcpmCfgDefaultData(subgraphSystemId, vcpmDefs);
+      .getVcpmDefinitionRepository()
+      .addVcpmCfgDefaultData(subgraphSystemId, defaults);
   }
 
   private async voiceToAudioCascade(
@@ -327,9 +343,10 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
       d => d.propertyId === SUB_GRAPH_PROP_CLOCK_SCALE_FACTOR,
     );
     if (clockScaleDef) {
+      const payload = this.serializeDefaultPropertyData(clockScaleDef);
       const newId = await this.uow
         .getSubgraphRepository()
-        .addProperty(subgraphSystemId, clockScaleDef.systemId, clockScaleDef);
+        .addProperty(subgraphSystemId, clockScaleDef.systemId, payload);
       log.propertiesAdded.push({
         systemId: String(newId),
         propertyId: clockScaleDef.propertyId,
@@ -342,33 +359,52 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
       .removeAllVcpmCfgData(subgraphSystemId);
   }
 
+  private serializeDefaultPropertyData(
+    definition: SubgraphPropertyDefinitionWithElementsReadModel,
+  ): Uint8Array {
+    const serialized = serializeDefaultParameterData(definition);
+    if (!serialized.ok) {
+      throw new InvalidOperationException(serialized.error);
+    }
+    return serialized.value;
+  }
+
   private async wipeModuleCalData(
     modules: SpfModuleBase[],
     fileSystemId: number,
-    log: MutationLog,
+    _log: MutationLog,
   ): Promise<void> {
-    const results = await Promise.all(
+    await Promise.all(
       modules.map(mod =>
+        // TODO(subgraph-write-review): This compatibility call currently
+        // performs only TKV cleanup. CKV deletion and zero-CKV reset are
+        // intentionally disabled until core creates and passes a reset plan.
         this.uow
           .getModuleRepository()
           .wipeCalData(mod.systemId, fileSystemId)
           .then(wiped => ({mod, wiped})),
       ),
     );
-    for (const {mod, wiped} of results) {
-      log.moduleCkvsDeleted.push(
-        ...wiped.ckvsDeleted.map(c => ({
-          moduleSystemId: String(mod.systemId),
-          ckvSystemId: String(c),
-        })),
-      );
-      log.moduleCkvsAdded.push(
-        ...wiped.zeroCkvsAdded.map(c => ({
-          moduleSystemId: String(mod.systemId),
-          ckvSystemId: String(c),
-        })),
-      );
-    }
+    /*
+     * TODO(subgraph-write-review): Re-enable CKV deletion and zero-CKV reset
+     * reporting when core owns the CKV reset-plan creation. Both mutation-log
+     * updates are intentionally deferred from this PR.
+     *
+     * for (const {mod, wiped} of results) {
+     *   log.moduleCkvsDeleted.push(
+     *     ...wiped.ckvsDeleted.map(c => ({
+     *       moduleSystemId: String(mod.systemId),
+     *       ckvSystemId: String(c),
+     *     })),
+     *   );
+     *   log.moduleCkvsAdded.push(
+     *     ...wiped.zeroCkvsAdded.map(c => ({
+     *       moduleSystemId: String(mod.systemId),
+     *       ckvSystemId: String(c),
+     *     })),
+     *   );
+     * }
+     */
   }
 
   private async getOptimalVsid(
@@ -410,22 +446,27 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
     ]);
   }
 
+  /**
+   * Subgraphs form a graph through their shared usecases. Traverse that
+   * graph to find linked voice subgraphs whose VSID can be reused when the
+   * current subgraph changes from an audio scenario to voice-call mode.
+   */
   private async bfsCollectVoiceVsids(
-    startId: number,
+    startSubgraphId: number,
     fileSystemId: number,
     vsidDefSystemId: number,
     scenarioDefSystemId: number | undefined,
   ): Promise<Set<number>> {
     // Pass 1: BFS using only getSubgraphIdsInSameUsecases
-    const reachableIds = await this.bfsReachableIds(startId, fileSystemId);
-    reachableIds.delete(startId); // exclude self — we only want linked Voice subgraphs
+    const reachableIds = await this.bfsReachableIds(startSubgraphId, fileSystemId);
+    reachableIds.delete(startSubgraphId); // exclude self — we only want linked Voice subgraphs
 
     if (reachableIds.size === 0) return new Set();
 
     // Pass 2: batch-fetch properties in 2 queries
     const subgraphMap = await this.uow
       .getSubgraphRepository()
-      .getSubgraphsWithProperties([...reachableIds], fileSystemId);
+      .getAggregates([...reachableIds], fileSystemId);
 
     // Pass 3: collect VSIDs from Voice subgraphs only
     const foundVsids = new Set<number>();
@@ -450,6 +491,11 @@ export class UpdateSubgraphScenarioHandler implements CommandHandler<
     return foundVsids;
   }
 
+  /**
+   * Expand the graph one level at a time. `visited` prevents revisiting a
+   * subgraph when usecases create cycles and guarantees termination.
+   * Repository traversal keeps the handler independent of link tables.
+   */
   private async bfsReachableIds(
     startId: number,
     fileSystemId: number,

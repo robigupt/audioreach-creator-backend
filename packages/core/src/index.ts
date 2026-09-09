@@ -75,7 +75,17 @@ export type {
   SubsystemDataRouteContext,
 } from './application/ports/persistence/repositories/data-link/data-link.repository.js';
 export type {ControlLinkRepository} from './application/ports/persistence/repositories/control-link/control-link.repository.js';
-export type {SubgraphRepository} from './application/ports/persistence/repositories/subgraph/subgraph.repository.js';
+export type {
+  SubgraphRepository,
+  SubgraphWithProperties,
+} from './application/ports/persistence/repositories/subgraph/subgraph.repository.js';
+export type {SubgraphPropertyDefinitionRepository} from './application/ports/persistence/repositories/subgraph-property-definition/subgraph-property-definition.repository.js';
+export type {
+  VcpmDefinitionRepository,
+  VcpmDefaultData,
+  VcpmModuleDefinitionWithParamsReadModel,
+} from './application/ports/persistence/repositories/vcpm-definition/vcpm-definition.repository.js';
+export type {SubsystemRepository} from './application/ports/persistence/repositories/subsystem/subsystem.repository.js';
 export type {
   SubsystemControlPortRef,
   SubsystemRepository,
@@ -402,10 +412,10 @@ export type {
 export {GetVcpmCkvQuery} from './application/usecase-designer/subgraph/get-vcpm-ckv/get-vcpm-ckv.query.js';
 export {GetVcpmCalDataQuery} from './application/usecase-designer/subgraph/get-vcpm-cal-data/get-vcpm-cal-data.query.js';
 // Subgraph write commands
-export {UpdateSubgraphScenarioCommand} from './application/usecase-designer/subgraph/update-scenario/update-subgraph-scenario.command.js';
-export {UpdateSubgraphVsidCommand} from './application/usecase-designer/subgraph/update-vsid/update-subgraph-vsid.command.js';
+export {PutSubgraphScenarioCommand} from './application/usecase-designer/subgraph/put-scenario/put-subgraph-scenario.command.js';
+export {PutSubgraphVsidCommand} from './application/usecase-designer/subgraph/put-vsid/put-subgraph-vsid.command.js';
 export {PatchSubgraphCommand} from './application/usecase-designer/subgraph/patch/patch-subgraph.command.js';
-export {UpdateSubgraphPropertyCommand} from './application/usecase-designer/subgraph/update-property/update-subgraph-property.command.js';
+export {PutSubgraphPropertyCommand} from './application/usecase-designer/subgraph/put-property/put-subgraph-property.command.js';
 export {UpdateSubgraphContainerIdCommand} from './application/usecase-designer/subgraph/update-container-id/update-subgraph-container-id.command.js';
 export {CreateVcpmCkvCommand} from './application/usecase-designer/subgraph/create-vcpm-ckv/create-vcpm-ckv.command.js';
 export type {CkvKeyValuePair} from './application/usecase-designer/subgraph/create-vcpm-ckv/create-vcpm-ckv.command.js';
@@ -415,10 +425,6 @@ export {UpdateVcpmCalDataCommand} from './application/usecase-designer/subgraph/
 export {GetSubgraphPropertyQuery} from './application/usecase-designer/subgraph/get-property/get-subgraph-property.query.js';
 export {GetSubgraphPropertyHandler} from './application/usecase-designer/subgraph/get-property/get-subgraph-property.handler.js';
 // Subgraph repository port types
-export type {
-  SubgraphWithProperties,
-  VcpmModuleDefinitionWithParamsReadModel,
-} from './application/ports/persistence/repositories/subgraph/subgraph.repository.js';
 // Module repository port types
 export type {WipeCalDataResult} from './application/ports/persistence/repositories/module/module.repository.js';
 // VCPM definition query service port
@@ -644,7 +650,8 @@ export * from './application/validation/commands/acknowledge-data-loss.command.j
 export * from './application/validation/validation-orchestrator.js';
 
 // SPF Constants
-export * from './application/file-operations/shared/constants/spf-ids.js';
+export * from './domain/entities/definitions/spf-ids.js';
+export * from './domain/entities/definitions/subgraph/subgraph-ids.js';
 
 // AWSP serializer v1 - configuration types (MODULE_PORT_STRATEGIES, PROCESSOR_DOMAINS, etc.)
 // MODULE_PORT_STRATEGIES canonical source is domain/entities/common/enums/module-port-strategy.ts
@@ -661,7 +668,10 @@ export {
 export {
   encodeStackSize,
   decodeStackSize,
-} from './domain/services/container-property/container-stack-size-codec.js';
+} from './application/usecase-designer/shared/utils/container-stack-size-codec.js';
+
+// Subgraph property codecs
+export {encodeVsidPayload} from './domain/services/subgraph-property/subgraph-property-payload-codec.js';
 
 // Auto-usecase-creator — types shared across port surface and persistence adapters
 export type {KvPair} from './application/ports/persistence/repositories/shared/kv-pair.js';

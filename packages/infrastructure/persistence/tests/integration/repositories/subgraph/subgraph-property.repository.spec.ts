@@ -12,6 +12,7 @@ import {
   beforeEach,
 } from '@jest/globals';
 import type {DataSource} from 'typeorm';
+import {CHANGE_OPERATION, CHANGE_STATUS, SOURCE} from '@arc/core';
 import {
   setupIntegrationTest,
   teardownIntegrationTest,
@@ -20,6 +21,7 @@ import {
   getTestRepository,
 } from '../../helpers/test-database-setup.js';
 import {TypeOrmSubgraphRepository} from '../../../../src/persistence-typeorm-sqllite/repositories/subgraph/subgraph.repository.js';
+import {TypeOrmVcpmDefinitionRepository} from '../../../../src/persistence-typeorm-sqllite/repositories/vcpm-definition/vcpm-definition.repository.js';
 import {EditActionsQueryService} from '../../../../src/persistence-typeorm-sqllite/queries/edit-session/edit-actions-query-service.js';
 import {PendingChangeWriter} from '../../../../src/persistence-typeorm-sqllite/services/pending-change-writer.js';
 import {PendingChangeCache} from '../../../../src/persistence-typeorm-sqllite/services/pending-change-cache.js';
@@ -31,6 +33,9 @@ import {
   SESSION_MODE,
   SESSION_STATUS,
 } from '../../../../src/persistence-typeorm-sqllite/entity-schema/edit-session/project-session.schema.js';
+import {EditActionSchema} from '../../../../src/persistence-typeorm-sqllite/entity-schema/edit-session/edit-action.schema.js';
+import {VcpmModuleDefinitionSchema} from '../../../../src/persistence-typeorm-sqllite/entity-schema/definitions/subgraph/vcpm/vcpm-module-definition.schema.js';
+import {VcpmModuleParameterDefinitionSchema} from '../../../../src/persistence-typeorm-sqllite/entity-schema/definitions/subgraph/vcpm/vcpm-module-parameter-definition.schema.js';
 
 const FILE_ID = 200;
 const SG_ID = 50;
@@ -103,14 +108,39 @@ function makeRepo(
   return new TypeOrmSubgraphRepository(writer, ds.manager, uow, idGeneration);
 }
 
-describe('TypeOrmSubgraphRepository — setName', () => {
+function makeVcpmRepo(
+  ds: DataSource,
+  sessionId: number,
+  fileSystemId = FILE_ID,
+): TypeOrmVcpmDefinitionRepository {
+  const editActionsQs = new EditActionsQueryService(ds);
+  const cache = new PendingChangeCache();
+  const writer = new PendingChangeWriter(editActionsQs, cache);
+  const uow = {
+    getWriteContext: () => ({
+      session: {sessionId, fileSystemId},
+      groupId: 'g1',
+    }),
+  } as any;
+  const idGeneration = {
+    getNextId: async () => Math.floor(Math.random() * 100_000) + 10_000,
+  } as any;
+  return new TypeOrmVcpmDefinitionRepository(
+    writer,
+    ds.manager,
+    uow,
+    idGeneration,
+  );
+}
+
+describe('TypeOrmSubgraphRepository — rename', () => {
   it('writes a delta edit_action row on the Subgraph row', async () => {
     const ds = getTestDataSource();
     await seedBase(ds);
     const sessionId = await seedSession(ds);
     const repo = makeRepo(ds, sessionId);
 
-    await repo.setName(SG_ID, 'renamed');
+    await repo.rename(SG_ID, 'renamed');
 
     const rows = await ds.manager
       .getRepository(ENTITY_NAMES.EditAction)
@@ -162,14 +192,58 @@ describe('TypeOrmSubgraphRepository — setPropertyData', () => {
   });
 });
 
-describe('TypeOrmSubgraphRepository — getSubgraphWithProperties', () => {
+describe('TypeOrmSubgraphRepository — addProperty', () => {
+  it('writes the prepared payload without loading a property definition', async () => {
+    const ds = getTestDataSource();
+    await seedBase(ds);
+    const sessionId = await seedSession(ds);
+    const repo = makeRepo(ds, sessionId);
+    const payload = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+
+    const propertyDataSystemId = await repo.addProperty(
+      SG_ID,
+      PROP_DEF_SYS_ID,
+      payload,
+    );
+
+    const rows: Array<{
+      target_table: string;
+      aggregate_id: number;
+      target_system_id: number;
+      new_value: string;
+    }> = await ds.query(
+      `SELECT target_table, aggregate_id, target_system_id, new_value FROM edit_actions WHERE session_id = ?`,
+      [sessionId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      target_table: ENTITY_NAMES.SubgraphPropertyData,
+      aggregate_id: SG_ID,
+      target_system_id: propertyDataSystemId,
+    });
+    const value = JSON.parse(rows[0]!.new_value) as {
+      subgraphSystemId: number;
+      propertySystemId: number;
+      payload: {__blob: string};
+    };
+    expect(value).toMatchObject({
+      subgraphSystemId: SG_ID,
+      propertySystemId: PROP_DEF_SYS_ID,
+    });
+    expect(Buffer.from(value.payload.__blob, 'base64')).toEqual(
+      Buffer.from(payload),
+    );
+  });
+});
+
+describe('TypeOrmSubgraphRepository — getAggregate', () => {
   it('returns subgraph with property rows from base data', async () => {
     const ds = getTestDataSource();
     await seedBase(ds);
     const sessionId = await seedSession(ds);
     const repo = makeRepo(ds, sessionId);
 
-    const result = await repo.getSubgraphWithProperties(SG_ID, FILE_ID);
+    const result = await repo.getAggregate(SG_ID, FILE_ID);
     expect(result).not.toBeNull();
     expect(result!.systemId).toBe(SG_ID);
     expect(result!.properties).toHaveLength(1);
@@ -181,8 +255,115 @@ describe('TypeOrmSubgraphRepository — getSubgraphWithProperties', () => {
     const sessionId = await seedSession(ds);
     const repo = makeRepo(ds, sessionId);
 
-    const result = await repo.getSubgraphWithProperties(9999, FILE_ID);
+    const result = await repo.getAggregate(9999, FILE_ID);
     expect(result).toBeNull();
+  });
+});
+
+describe('TypeOrmSubgraphRepository — definition reads', () => {
+  it('returns property summaries and filters by natural property ID', async () => {
+    const ds = getTestDataSource();
+    await seedBase(ds);
+    const sessionId = await seedSession(ds);
+    const repo = makeRepo(ds, sessionId);
+
+    const all = await repo.getAllSubgraphPropertyDefinitionsSummary(FILE_ID);
+    expect(all.kind).toBe('OK');
+    if (all.kind !== 'OK') return;
+    expect(all.data).toHaveLength(1);
+    expect(all.data[0]).toMatchObject({
+      systemId: PROP_DEF_SYS_ID,
+      propertyId: 55,
+    });
+
+    const filtered = await repo.getAllSubgraphPropertyDefinitionsSummary(
+      FILE_ID,
+      55,
+    );
+    expect(filtered.kind).toBe('OK');
+    if (filtered.kind !== 'OK') return;
+    expect(filtered.data).toHaveLength(1);
+  });
+
+  it('returns detailed definitions and fails for an unknown system ID', async () => {
+    const ds = getTestDataSource();
+    await seedBase(ds);
+    const sessionId = await seedSession(ds);
+    const repo = makeRepo(ds, sessionId);
+
+    const detail = await repo.getSubgraphPropertyWithElements(
+      PROP_DEF_SYS_ID,
+      FILE_ID,
+    );
+    expect(detail.kind).toBe('OK');
+    if (detail.kind === 'OK') expect(detail.data.elementsStructure).toBe('[]');
+
+    const missing = await repo.getSubgraphPropertyWithElements(9999, FILE_ID);
+    expect(missing.kind).toBe('FAIL');
+  });
+
+  it('applies the active edit-session overlay to property definitions', async () => {
+    const ds = getTestDataSource();
+    await seedBase(ds);
+    const sessionId = await seedSession(ds);
+    await getTestRepository(EditActionSchema).save({
+      sessionId,
+      aggregateId: PROP_DEF_SYS_ID,
+      targetSystemId: PROP_DEF_SYS_ID,
+      targetTable: ENTITY_NAMES.SubgraphPropertyDefinition,
+      operation: CHANGE_OPERATION.Update,
+      fieldPath: 'name',
+      newValue: {name: 'overlay-gain'},
+      source: SOURCE.Manual,
+      changeStatus: CHANGE_STATUS.Staged,
+      groupId: 'g1',
+      linkedEntityGroupId: null,
+      validUntil: null,
+    });
+
+    const repo = makeRepo(ds, sessionId);
+    const result = await repo.getAllSubgraphPropertyDefinitionsSummary(FILE_ID);
+    expect(result.kind).toBe('OK');
+    if (result.kind === 'OK') expect(result.data[0].name).toBe('overlay-gain');
+  });
+
+  it('groups VCPM module definitions with their parameters', async () => {
+    const ds = getTestDataSource();
+    await seedBase(ds);
+    const sessionId = await seedSession(ds);
+    await getTestRepository(VcpmModuleDefinitionSchema).save({
+      systemId: 401,
+      moduleDefinitionId: 9001,
+      name: 'VCPM',
+      fileSystemId: FILE_ID,
+    });
+    await getTestRepository(VcpmModuleParameterDefinitionSchema).save({
+      systemId: 402,
+      paramId: 7,
+      name: 'param',
+      maxSize: 4,
+      pidType: 'UInt32',
+      isPersistent: true,
+      isReadOnly: false,
+      elementsStructure: '[]',
+      vcpmModuleDefinitionSystemId: 401,
+    });
+
+    const repo = makeVcpmRepo(ds, sessionId);
+    await expect(repo.getAllVcpmModuleDefinitions(FILE_ID)).resolves.toEqual([
+      {
+        systemId: 401,
+        moduleDefinitionId: 9001,
+        parameters: [
+          {
+            systemId: 402,
+            paramId: 7,
+            elementsStructure: '[]',
+            isReadOnly: false,
+          },
+        ],
+      },
+    ]);
   });
 });
 

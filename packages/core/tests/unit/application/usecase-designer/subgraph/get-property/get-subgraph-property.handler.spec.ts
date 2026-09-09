@@ -64,7 +64,7 @@ function makeServices(
       findPropertyPayloads: jest.fn().mockResolvedValue(payloadsResult),
     },
     subgraphPropertyDefQueryService: {
-      getSubgraphPropertyDefinitionWithElements: jest
+      getSubgraphPropertyWithElements: jest
         .fn()
         .mockResolvedValue(defResult),
     },

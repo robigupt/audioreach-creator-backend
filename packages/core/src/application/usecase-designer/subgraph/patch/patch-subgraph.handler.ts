@@ -16,10 +16,12 @@ export class PatchSubgraphHandler implements CommandHandler<
 
   async handle(command: PatchSubgraphCommand): Promise<{groupId: string}> {
     const {session, groupId} = this.uow.getWriteContext();
+    const repository = this.uow.getSubgraphRepository();
 
-    const exists = await this.uow
-      .getSubgraphRepository()
-      .subgraphExists(command.subgraphSystemId, session.fileSystemId);
+    const exists = await repository.subgraphExists(
+      command.subgraphSystemId,
+      session.fileSystemId,
+    );
     if (!exists) {
       throw new ResourceNotFoundException(
         `Subgraph ${command.subgraphSystemId} not found`,
@@ -27,9 +29,7 @@ export class PatchSubgraphHandler implements CommandHandler<
     }
 
     if (command.name !== undefined) {
-      await this.uow
-        .getSubgraphRepository()
-        .setName(command.subgraphSystemId, command.name);
+      await repository.rename(command.subgraphSystemId, command.name);
     }
 
     return {groupId};

@@ -17,16 +17,16 @@ const SESSION = {
 const GROUP_ID = 'g1';
 
 function makeUow(exists: boolean) {
-  const setName = jest.fn().mockResolvedValue(undefined);
+  const rename = jest.fn().mockResolvedValue(undefined);
   return {
     getWriteContext: jest
       .fn()
       .mockReturnValue({session: SESSION, groupId: GROUP_ID}),
     getSubgraphRepository: jest.fn().mockReturnValue({
       subgraphExists: jest.fn().mockResolvedValue(exists),
-      setName,
+      rename,
     }),
-    _setName: setName,
+    _rename: rename,
   };
 }
 
@@ -39,18 +39,18 @@ describe('PatchSubgraphHandler', () => {
     ).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
-  it('calls setName when name is provided', async () => {
+  it('calls rename when name is provided', async () => {
     const uow = makeUow(true) as any;
     const handler = new PatchSubgraphHandler(uow);
     await handler.handle(new PatchSubgraphCommand(10, 'renamed'));
-    expect(uow._setName).toHaveBeenCalledWith(10, 'renamed');
+    expect(uow._rename).toHaveBeenCalledWith(10, 'renamed');
   });
 
-  it('does not call setName when name is undefined', async () => {
+  it('does not call rename when name is undefined', async () => {
     const uow = makeUow(true) as any;
     const handler = new PatchSubgraphHandler(uow);
     await handler.handle(new PatchSubgraphCommand(10, undefined));
-    expect(uow._setName).not.toHaveBeenCalled();
+    expect(uow._rename).not.toHaveBeenCalled();
   });
 
   it('returns groupId', async () => {
